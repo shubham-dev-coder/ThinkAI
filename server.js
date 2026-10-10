@@ -1,5 +1,22 @@
+// dns server setting
+const dns = require("dns");
+dns.setServers(["8.8.8.8"]);
+
 // Loads environment variables from the .env file
 require("dotenv").config();
+
+// Import the Chat model to perform database operations
+const chat = require("./models/chat");
+
+//Require mongoose
+const mongoose= require("mongoose");
+
+mongoose.connect(process.env.MONGODB_URI)
+.then(()=>{
+    console.log("MongoDB Connected")
+}).catch((err)=>{
+    console.log("MongoDB connection error",err);
+});
 
 // Imports Express framework
 const express = require("express");
@@ -52,12 +69,28 @@ app.get("/ask-ai", async (req, res) => {
         ]
     });
 
-    // Sends Groq's generated text to the browser
-    res.json({
-        answer: response.choices[0].message.content
-    });
+   // Store the AI-generated answer in a variable
+   const answer = response.choices[0].message.content;
+
+   // Save the question and answer in Mongo
+     await chat.create({
+        question:question,
+        answer:answer
+   });
+
+   // Send the answer to the frontend
+   res.json({
+    answer:answer
+   });
 });
 
+// API route to fetch previously saved chats
+app.get("/chats",async (req,res)=>{
+  const chats = await chat.find().sort({createdAt:-1});
+
+  // Send the saved chats to the frontend
+  res.json(chats);
+})
 
 // Starts the Express server
 app.listen(PORT, () => {
