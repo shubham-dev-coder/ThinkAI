@@ -1,6 +1,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { Sparkles } from "lucide-react";
+import Signup from "./signup";
 import "./App.css";
 
 function App() {
@@ -9,6 +10,9 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [recentChats, setRecentChats] = useState([]);
   const [selectedChatId, setSelectedChatId] = useState(null);
+
+  // Controls whether the Signup page is visible
+  const [showSignup, setShowSignup] = useState(false);
 
   const chatEndRef = useRef(null);
 
@@ -69,8 +73,6 @@ function App() {
     if (!question.trim() || loading) return;
 
     const currentQuestion = question.trim();
-
-    // If a saved item is open, start a separate Q&A
     const isNewChat = selectedChatId !== null;
 
     setLoading(true);
@@ -141,11 +143,37 @@ function App() {
     }
   };
 
+  // Show Signup page
+  
+if (showSignup) {
+  return (
+    <div className="signup-page">
+      <Signup />
+
+      <button
+        className="signup-back-button"
+        onClick={() => setShowSignup(false)}
+      >
+        ← Back to ThinkAI
+      </button>
+    </div>
+  );
+}
+
+
   return (
     <div className="app-layout">
       {/* Left Sidebar */}
       <aside className="sidebar">
         <h2>✨ ThinkAI</h2>
+
+        {/* Open Signup page */}
+        <button
+          className="new-chat-button"
+          onClick={() => setShowSignup(true)}
+        >
+          Sign Up
+        </button>
 
         <button
           className="new-chat-button"

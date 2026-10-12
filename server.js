@@ -30,6 +30,15 @@ const Groq = require("groq-sdk");
 // Creates an Express application
 const app = express();
 
+// Parses JSON data sent by the frontend
+app.use(express.json());
+
+// Imports the User model
+const User = require("./models/User");
+
+// require bcrypt
+const bcrypt = require("bcrypt");
+
 // Allows frontend to communicate with backend
 app.use(cors());
 
@@ -40,6 +49,63 @@ const groq = new Groq({
 
 // Port on which our ThinkAI backend server will run
 const PORT = 5000;
+
+// Signup route - creates a new user account
+app.post("/signup", async (req, res) => {
+    try {
+        const { username, email, password } = req.body;
+
+        if (!username || !email || !password) {
+            return res.status(400).json({
+                message: "All fields are required"
+            });
+        }
+
+        if (typeof username !== "string" ||
+            typeof email !== "string" ||
+            typeof password !== "string") {
+            return res.status(400).json({
+                message: "Invalid input"
+            });
+        }
+
+        if (password.length < 8) {
+            return res.status(400).json({
+                message: "Password must be at least 8 characters"
+            });
+        }
+
+        const hashedPassword = await bcrypt.hash(password, 12);
+
+        const newUser = await User.create({
+            username: username.trim(),
+            email: email.trim().toLowerCase(),
+            password: hashedPassword
+        });
+
+        res.status(201).json({
+            message: "Signup successful",
+            user: {
+                id: newUser._id,
+                username: newUser.username,
+                email: newUser.email
+            }
+        });
+
+    } catch (error) {
+        if (error.code === 11000) {
+            return res.status(409).json({
+                message: "Username or email already exists"
+            });
+        }
+
+        console.error("Signup error:", error);
+
+        res.status(500).json({
+            message: "Signup failed"
+        });
+    }
+});
 
 
 // API route for asking an AI question
