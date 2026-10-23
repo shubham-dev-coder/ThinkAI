@@ -2,6 +2,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Sparkles } from "lucide-react";
 import Signup from "./signup";
+import Login from "./Login";
 import "./App.css";
 
 function App() {
@@ -11,128 +12,172 @@ function App() {
   const [recentChats, setRecentChats] = useState([]);
   const [selectedChatId, setSelectedChatId] = useState(null);
 
-  // Controls whether the Signup page is visible
-  const [showSignup, setShowSignup] = useState(false);
+  const [page, setPage] = useState("login");
+  const [currentUser, setCurrentUser] = useState(null);
+  const [checkingSession, setCheckingSession] = useState(true);
 
   const chatEndRef = useRef(null);
 
-  // Automatically scroll to the latest message
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({
       behavior: "smooth",
     });
   }, [messages, loading]);
 
-  // Fetch saved chats from MongoDB
+  // Load chats belonging to the logged-in user
+  const fetchChats = async () => {
+    try {
+      const response = await fetch(
+        "http://localhost:5000/chats",
+        {
+          credentials: "include",
+        }
+      );
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          setRecentChats([]);
+          return;
+        }
+
+        throw new Error("Failed to fetch conversations");
+      }
+
+      const data = await response.json();
+      setRecentChats(data);
+    } catch (error) {
+      console.error("Error fetching chats:", error);
+    }
+  };
+
+  // Check whether the user still has a valid session
   useEffect(() => {
-    const fetchChats = async () => {
+    const checkSession = async () => {
       try {
-        const response = await fetch("http://localhost:5000/chats");
+        const response = await fetch(
+          "http://localhost:5000/me",
+          {
+            credentials: "include",
+          }
+        );
 
         if (!response.ok) {
-          throw new Error("Failed to fetch chats");
+          setCurrentUser(null);
+          setRecentChats([]);
+          setPage("login");
+          return;
         }
 
         const data = await response.json();
-        setRecentChats(data);
+
+        setCurrentUser(data.user);
+        setPage("chat");
+
+        await fetchChats();
       } catch (error) {
-        console.error("Error fetching chats:", error);
+        console.error("Session check failed:", error);
+        setCurrentUser(null);
+        setRecentChats([]);
+        setPage("login");
+      } finally {
+        setCheckingSession(false);
       }
     };
 
-    fetchChats();
+    checkSession();
   }, []);
 
-  // Start a new chat without deleting saved chats
   const startNewChat = () => {
     setMessages([]);
     setQuestion("");
     setSelectedChatId(null);
   };
 
-  // Open a saved question and answer
+  // Open an existing conversation
   const openRecentChat = (chat) => {
-    setSelectedChatId(chat._id);
+    setSelectedChatId(chat.conversationId || chat._id);
 
-    setMessages([
-      {
-        role: "user",
-        content: chat.question,
-      },
-      {
-        role: "ai",
-        content: chat.answer,
-      },
-    ]);
+    if (Array.isArray(chat.messages) && chat.messages.length > 0) {
+      setMessages(chat.messages);
+    } else {
+      setMessages([
+        { role: "user", content: chat.question },
+        { role: "ai", content: chat.answer },
+      ]);
+    }
 
     setQuestion("");
   };
 
-  // Ask ThinkAI a question
+  // Send a question to ThinkAI
   const askAI = async () => {
     if (!question.trim() || loading) return;
 
-    const currentQuestion = question.trim();
-    const isNewChat = selectedChatId !== null;
-
-    setLoading(true);
-    setQuestion("");
-    setSelectedChatId(null);
-
-    const userMessage = {
-      role: "user",
-      content: currentQuestion,
-    };
-
-    if (isNewChat) {
-      setMessages([userMessage]);
-    } else {
-      setMessages((prevMessages) => [
-        ...prevMessages,
-        userMessage,
-      ]);
+    if (!currentUser) {
+      setPage("login");
+      return;
     }
+
+    const currentQuestion = question.trim();
+    const conversationId =
+      selectedChatId || crypto.randomUUID();
+
+    const previousMessages = messages.map((message) => ({
+      role: message.role === "ai" ? "assistant" : "user",
+      content: message.content,
+    }));
+
+    setMessages((previous) => [
+      ...previous,
+      { role: "user", content: currentQuestion },
+    ]);
+
+    setSelectedChatId(conversationId);
+    setQuestion("");
+    setLoading(true);
 
     try {
       const response = await fetch(
-        `http://localhost:5000/ask-ai?question=${encodeURIComponent(
-          currentQuestion
-        )}`
+        "http://localhost:5000/ask-ai",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          credentials: "include",
+          body: JSON.stringify({
+            question: currentQuestion,
+            conversationId,
+            history: previousMessages,
+          }),
+        }
       );
-
-      if (!response.ok) {
-        throw new Error("Failed to get an AI response");
-      }
 
       const data = await response.json();
 
-      // Display the AI answer
-      setMessages((prevMessages) => [
-        ...prevMessages,
-        {
-          role: "ai",
-          content: data.answer,
-        },
+      if (response.status === 401) {
+        setCurrentUser(null);
+        setPage("login");
+        throw new Error("Session expired. Please log in again.");
+      }
+
+      if (!response.ok) {
+        throw new Error(
+          data.message || "Failed to get AI response"
+        );
+      }
+
+      setMessages((previous) => [
+        ...previous,
+        { role: "ai", content: data.answer },
       ]);
 
-      // Add the new Q&A to the top of Recents
-      const newChat = {
-        _id: `local-${Date.now()}`,
-        question: currentQuestion,
-        answer: data.answer,
-      };
-
-      setRecentChats((prevChats) => [
-        newChat,
-        ...prevChats,
-      ]);
-
-      setSelectedChatId(newChat._id);
+      await fetchChats();
     } catch (error) {
       console.error("Error asking ThinkAI:", error);
 
-      setMessages((prevMessages) => [
-        ...prevMessages,
+      setMessages((previous) => [
+        ...previous,
         {
           role: "ai",
           content: "Sorry, something went wrong. Please try again.",
@@ -143,37 +188,89 @@ function App() {
     }
   };
 
-  // Show Signup page
-  
-if (showSignup) {
-  return (
-    <div className="signup-page">
-      <Signup />
+  // Log out and destroy the server-side session
+  const handleLogout = async () => {
+    try {
+      const response = await fetch(
+        "http://localhost:5000/logout",
+        {
+          method: "POST",
+          credentials: "include",
+        }
+      );
 
-      <button
-        className="signup-back-button"
-        onClick={() => setShowSignup(false)}
-      >
-        ← Back to ThinkAI
-      </button>
-    </div>
-  );
-}
+      if (!response.ok) {
+        throw new Error("Logout failed");
+      }
 
+      setCurrentUser(null);
+      setRecentChats([]);
+      setMessages([]);
+      setQuestion("");
+      setSelectedChatId(null);
+      setPage("login");
+    } catch (error) {
+      console.error("Logout error:", error);
+      alert("Unable to log out. Please try again.");
+    }
+  };
+
+  if (checkingSession) {
+    return <div className="signup-page">Checking session...</div>;
+  }
+
+  if (page === "signup") {
+    return (
+      <div className="signup-page">
+        <Signup
+          onSignupSuccess={() => setPage("login")}
+          onLoginClick={() => setPage("login")}
+        />
+
+        <button
+          className="signup-back-button"
+          onClick={() => setPage("login")}
+        >
+          ← Back to Login
+        </button>
+      </div>
+    );
+  }
+
+  if (page === "login") {
+    return (
+      <div className="signup-page">
+        <Login
+          onLoginSuccess={(user) => {
+            setCurrentUser(user);
+            setMessages([]);
+            setSelectedChatId(null);
+            setPage("chat");
+            fetchChats();
+          }}
+          onSignupClick={() => setPage("signup")}
+        />
+
+        <button
+          className="signup-back-button"
+          onClick={() => setPage("signup")}
+        >
+          Create an account
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="app-layout">
-      {/* Left Sidebar */}
       <aside className="sidebar">
         <h2>✨ ThinkAI</h2>
 
-        {/* Open Signup page */}
-        <button
-          className="new-chat-button"
-          onClick={() => setShowSignup(true)}
-        >
-          Sign Up
-        </button>
+        {currentUser && (
+          <p className="welcome-user">
+            Welcome, {currentUser.username}!
+          </p>
+        )}
 
         <button
           className="new-chat-button"
@@ -182,33 +279,41 @@ if (showSignup) {
           + New Chat
         </button>
 
+        <button
+          className="new-chat-button"
+          onClick={handleLogout}
+        >
+          Logout
+        </button>
+
         <h3>Recents</h3>
 
         <div className="recent-chats-list">
           {recentChats.length === 0 ? (
-            <div className="recent-chat">
-              No saved chats yet
-            </div>
+            <div className="recent-chat">No saved chats yet</div>
           ) : (
-            recentChats.map((chat) => (
-              <div
-                key={chat._id}
-                className={
-                  selectedChatId === chat._id
-                    ? "recent-chat active"
-                    : "recent-chat"
-                }
-                title={chat.question}
-                onClick={() => openRecentChat(chat)}
-              >
-                {chat.question}
-              </div>
-            ))
+            recentChats.map((chat) => {
+              const chatId = chat.conversationId || chat._id;
+
+              return (
+                <div
+                  key={chatId}
+                  className={
+                    selectedChatId === chatId
+                      ? "recent-chat active"
+                      : "recent-chat"
+                  }
+                  title={chat.question}
+                  onClick={() => openRecentChat(chat)}
+                >
+                  {chat.question}
+                </div>
+              );
+            })
           )}
         </div>
       </aside>
 
-      {/* Main Chat Area */}
       <main className="main-content">
         <h1>
           <Sparkles />
@@ -244,7 +349,7 @@ if (showSignup) {
             </div>
           )}
 
-          <div ref={chatEndRef}></div>
+          <div ref={chatEndRef} />
         </div>
 
         <div className="search-box">

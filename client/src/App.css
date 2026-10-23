@@ -9,7 +9,8 @@ body,
   margin: 0;
   padding: 0;
   width: 100%;
-  min-height: 100%;
+  height: 100%;
+  overflow: hidden;
 }
 
 body {
@@ -21,22 +22,36 @@ body {
     #08090d;
 }
 
-/* Main layout */
+/* Main layout: viewport fixed, no page scrolling */
 .app-layout {
   display: flex;
   width: 100%;
-  min-height: 100vh;
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
 }
 
-/* Left sidebar */
+/* Left sidebar: independent scrolling */
 .sidebar {
   width: 260px;
   min-width: 260px;
   flex-shrink: 0;
-  min-height: 100vh;
+  height: 100%;
+  min-height: 0;
   padding: 20px 14px;
   background: #111218;
   border-right: 1px solid #292b35;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.sidebar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.sidebar::-webkit-scrollbar-thumb {
+  background: #333642;
+  border-radius: 10px;
 }
 
 .sidebar h2 {
@@ -63,11 +78,36 @@ body {
   cursor: pointer;
 }
 
+/* Recent chats list */
+.recent-chats-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .recent-chat {
-  padding: 10px;
-  color: #c9cad5;
+  display: block;
+  width: 100%;
+  padding: 12px;
+  color: #e0e0e0;
+  background: #171820;
+  border: 1px solid #393b48;
+  border-radius: 6px;
   font-size: 14px;
-  border-radius: 8px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.recent-chat:hover {
+  background: #252732;
+  border-color: #777b90;
+}
+
+.recent-chat.active {
+  background: #292b38;
+  border-color: #777b90;
 }
 
 /* Main chat area */
@@ -75,8 +115,12 @@ body {
   position: relative;
   flex: 1;
   min-width: 0;
-  min-height: 100vh;
+  height: 100%;
+  min-height: 0;
   padding-top: 1px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .main-content h1 {
@@ -84,6 +128,7 @@ body {
   justify-content: center;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
   margin: 30px 0;
   font-size: 32px;
 }
@@ -93,17 +138,21 @@ h1 svg {
   height: 32px;
 }
 
-/* Messages */
+/* Messages: only this area scrolls vertically */
 .chat-container {
   display: flex;
   flex-direction: column;
   gap: 18px;
   width: 700px;
   max-width: 90%;
-  height: calc(100vh - 180px);
-  margin: 0 auto 100px;
+  flex: 1;
+  min-height: 0;
+  height: auto;
+  margin: 0 auto;
   padding: 10px 5px 30px;
   overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
   scroll-behavior: smooth;
 }
 
@@ -150,17 +199,17 @@ h1 svg {
   white-space: pre-wrap;
 }
 
-/* Input area */
+/* Input area: stays fixed at the bottom */
 .main-content .search-box {
-  position: fixed;
-  bottom: 20px;
-  left: 260px;
-  right: 0;
+  position: relative;
+  flex-shrink: 0;
   z-index: 100;
   display: flex;
   justify-content: center;
   gap: 10px;
-  padding: 0 20px;
+  width: 100%;
+  padding: 14px 20px 20px;
+  background: #08090d;
 }
 
 input {
@@ -209,11 +258,6 @@ button:hover {
     font-size: 18px;
   }
 
-  .main-content .search-box {
-    left: 150px;
-    padding: 0 8px;
-  }
-
   .main-content h1 {
     font-size: 25px;
   }
@@ -227,8 +271,14 @@ button:hover {
     max-width: 90%;
   }
 
+  .main-content .search-box {
+    padding: 12px 8px 16px;
+    gap: 6px;
+  }
+
   input {
     width: 70%;
+    max-width: 70%;
     min-width: 0;
   }
 
@@ -237,45 +287,9 @@ button:hover {
   }
 }
 
-
-/* Recent chats list */
-.recent-chats-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-/* Each recent chat */
-.recent-chat {
-  display: block;
-  width: 100%;
-  padding: 12px;
-  color: #e0e0e0;
-  background: #171820;
-  border: 1px solid #393b48;
-  border-radius: 6px;
-  font-size: 14px;
-  line-height: 1.5;
-  overflow-wrap: anywhere;
-  cursor: pointer;
-  transition: background 0.2s, border-color 0.2s;
-}
-
-/* Mouse hover effect */
-.recent-chat:hover {
-  background: #252732;
-  border-color: #777b90;
-}
-
-/* Currently selected chat */
-.recent-chat.active {
-  background: #292b38;
-  border-color: #777b90;
-}
-
-
+/* Signup page */
 .signup-page {
-  min-height: 100vh;
+  height: 100vh;
   width: 100%;
   box-sizing: border-box;
   display: flex;
@@ -284,6 +298,7 @@ button:hover {
   justify-content: center;
   gap: 18px;
   padding: 24px 16px;
+  overflow-y: auto;
   background: #0f1016;
 }
 

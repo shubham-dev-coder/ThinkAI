@@ -1,164 +1,389 @@
-// dns server setting
+
 const dns = require("dns");
 dns.setServers(["8.8.8.8"]);
 
-// Loads environment variables from the .env file
 require("dotenv").config();
 
-// Import the Chat model to perform database operations
 const chat = require("./models/chat");
-
-//Require mongoose
-const mongoose= require("mongoose");
-
-mongoose.connect(process.env.MONGODB_URI)
-.then(()=>{
-    console.log("MongoDB Connected")
-}).catch((err)=>{
-    console.log("MongoDB connection error",err);
-});
-
-// Imports Express framework
-const express = require("express");
-
-// Imports CORS middleware
-const cors = require("cors");
-
-// Imports Groq AI SDK
-const Groq = require("groq-sdk");
-
-// Creates an Express application
-const app = express();
-
-// Parses JSON data sent by the frontend
-app.use(express.json());
-
-// Imports the User model
 const User = require("./models/User");
 
-// require bcrypt
+const mongoose = require("mongoose");
+const express = require("express");
+const cors = require("cors");
+const session = require("express-session");
+const MongoStore = require("connect-mongo").default;
+const Groq = require("groq-sdk");
 const bcrypt = require("bcrypt");
 
-// Allows frontend to communicate with backend
-app.use(cors());
-
-// Creates a Groq client using the API key stored in .env
-const groq = new Groq({
-    apiKey: process.env.GROQ_API_KEY
-});
-
-// Port on which our ThinkAI backend server will run
+const app = express();
 const PORT = 5000;
 
-// Signup route - creates a new user account
-app.post("/signup", async (req, res) => {
-    try {
-        const { username, email, password } = req.body;
+// Frontend origin; change this if Vite uses another port.
+const FRONTEND_ORIGIN =
+  process.env.FRONTEND_ORIGIN || "http://localhost:5173";
 
-        if (!username || !email || !password) {
-            return res.status(400).json({
-                message: "All fields are required"
-            });
-        }
+// Middleware
+app.use(
+  cors({
+    origin: FRONTEND_ORIGIN,
+    credentials: true,
+  })
+);
 
-        if (typeof username !== "string" ||
-            typeof email !== "string" ||
-            typeof password !== "string") {
-            return res.status(400).json({
-                message: "Invalid input"
-            });
-        }
+app.use(express.json());
 
-        if (password.length < 8) {
-            return res.status(400).json({
-                message: "Password must be at least 8 characters"
-            });
-        }
+// MongoDB connection
+mongoose
+  .connect(process.env.MONGODB_URI)
+  .then(() => console.log("MongoDB Connected"))
+  .catch((err) => console.error("MongoDB connection error:", err));
 
-        const hashedPassword = await bcrypt.hash(password, 12);
-
-        const newUser = await User.create({
-            username: username.trim(),
-            email: email.trim().toLowerCase(),
-            password: hashedPassword
-        });
-
-        res.status(201).json({
-            message: "Signup successful",
-            user: {
-                id: newUser._id,
-                username: newUser.username,
-                email: newUser.email
-            }
-        });
-
-    } catch (error) {
-        if (error.code === 11000) {
-            return res.status(409).json({
-                message: "Username or email already exists"
-            });
-        }
-
-        console.error("Signup error:", error);
-
-        res.status(500).json({
-            message: "Signup failed"
-        });
-    }
+// Groq client
+const groq = new Groq({
+  apiKey: process.env.GROQ_API_KEY,
 });
 
+// Session configuration
+if (!process.env.SESSION_SECRET) {
+  throw new Error("SESSION_SECRET is missing from your .env file");
+}
 
-// API route for asking an AI question
-app.get("/ask-ai", async (req, res) => {
+app.use(
+  session({
+    name: "thinkai.sid",
+    secret: process.env.SESSION_SECRET,
+    resave: false,
+    saveUninitialized: false,
+    store: MongoStore.create({
+      mongoUrl: process.env.MONGODB_URI,
+      collectionName: "sessions",
+      ttl: 60 * 60 * 24,
+    }),
+    cookie: {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 1000 * 60 * 60 * 24,
+    },
+  })
+);
 
-    const question = req.query.question;
+// Middleware to protect private routes
+function requireAuth(req, res, next) {
+  if (!req.session || !req.session.userId) {
+    return res.status(401).json({
+      message: "Please log in to continue",
+    });
+  }
 
-    // Sends a request to Groq
-    const response = await groq.chat.completions.create({
+  next();
+}
 
-        // Specifies the AI model
-        model: "openai/gpt-oss-20b",
+// ==============================
+// SIGNUP
+// ==============================
+app.post("/signup", async (req, res) => {
+  try {
+    const { username, email, password } = req.body;
 
-        // Sends the user's prompt to Groq
-        messages: [
+    if (
+      typeof username !== "string" ||
+      !username.trim() ||
+      typeof email !== "string" ||
+      !email.trim() ||
+      typeof password !== "string" ||
+      !password
+    ) {
+      return res.status(400).json({
+        message: "Please provide valid signup details",
+      });
+    }
 
-            {
-              role: "system",
-              content:
-                  "You are ThinkAI, an AI assistant created for this application. Your name is ThinkAI. Never identify yourself as ChatGPT."
-            },
-            
-            {
-                role: "user",
-                content: question
-            }
-        ]
+    if (password.length < 8) {
+      return res.status(400).json({
+        message: "Password must be at least 8 characters",
+      });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 12);
+
+    const newUser = await User.create({
+      username: username.trim(),
+      email: email.trim().toLowerCase(),
+      password: hashedPassword,
     });
 
-   // Store the AI-generated answer in a variable
-   const answer = response.choices[0].message.content;
+    return res.status(201).json({
+      message: "Signup successful",
+      user: {
+        id: newUser._id,
+        username: newUser.username,
+        email: newUser.email,
+      },
+    });
+  } catch (error) {
+    if (error.code === 11000) {
+      return res.status(409).json({
+        message: "Username or email already exists",
+      });
+    }
 
-   // Save the question and answer in Mongo
-     await chat.create({
-        question:question,
-        answer:answer
-   });
+    console.error("Signup error:", error);
 
-   // Send the answer to the frontend
-   res.json({
-    answer:answer
-   });
+    return res.status(500).json({
+      message: "Signup failed",
+    });
+  }
 });
 
-// API route to fetch previously saved chats
-app.get("/chats",async (req,res)=>{
-  const chats = await chat.find().sort({createdAt:-1});
+// ==============================
+// LOGIN
+// ==============================
+app.post("/login", async (req, res) => {
+  try {
+    const { email, password } = req.body;
 
-  // Send the saved chats to the frontend
-  res.json(chats);
-})
+    if (
+      typeof email !== "string" ||
+      !email.trim() ||
+      typeof password !== "string" ||
+      !password
+    ) {
+      return res.status(400).json({
+        message: "Email and password are required",
+      });
+    }
 
-// Starts the Express server
+    const user = await User.findOne({
+      email: email.trim().toLowerCase(),
+    });
+
+    if (!user) {
+      return res.status(401).json({
+        message: "Invalid email or password",
+      });
+    }
+
+    const isPasswordValid = await bcrypt.compare(
+      password,
+      user.password
+    );
+
+    if (!isPasswordValid) {
+      return res.status(401).json({
+        message: "Invalid email or password",
+      });
+    }
+
+    // Prevent session fixation by creating a fresh session.
+    req.session.regenerate((err) => {
+      if (err) {
+        console.error("Session regeneration error:", err);
+        return res.status(500).json({
+          message: "Unable to create login session",
+        });
+      }
+
+      req.session.userId = user._id.toString();
+
+      req.session.save((saveError) => {
+        if (saveError) {
+          console.error("Session save error:", saveError);
+          return res.status(500).json({
+            message: "Unable to save login session",
+          });
+        }
+
+        return res.status(200).json({
+          message: "Login successful",
+          user: {
+            id: user._id,
+            username: user.username,
+            email: user.email,
+          },
+        });
+      });
+    });
+  } catch (error) {
+    console.error("Login error:", error);
+
+    return res.status(500).json({
+      message: "Login failed. Please try again.",
+    });
+  }
+});
+
+// ==============================
+// CHECK CURRENT SESSION
+// ==============================
+app.get("/me", requireAuth, async (req, res) => {
+  try {
+    const user = await User.findById(req.session.userId).select(
+      "username email"
+    );
+
+    if (!user) {
+      return req.session.destroy(() => {
+        res.status(401).json({
+          message: "Please log in again",
+        });
+      });
+    }
+
+    return res.json({
+      user: {
+        id: user._id,
+        username: user.username,
+        email: user.email,
+      },
+    });
+  } catch (error) {
+    console.error("Session check error:", error);
+    return res.status(500).json({
+      message: "Unable to check login session",
+    });
+  }
+});
+
+// ==============================
+// LOGOUT
+// ==============================
+app.post("/logout", requireAuth, (req, res) => {
+  req.session.destroy((err) => {
+    if (err) {
+      console.error("Logout error:", err);
+      return res.status(500).json({
+        message: "Logout failed",
+      });
+    }
+
+    res.clearCookie("thinkai.sid", {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+    });
+
+    return res.json({
+      message: "Logged out successfully",
+    });
+  });
+});
+
+// ==============================
+// ASK AI - LOGIN REQUIRED
+// ==============================
+app.post("/ask-ai", requireAuth, async (req, res) => {
+  try {
+    const { question, conversationId, history = [] } = req.body;
+
+    if (
+      typeof question !== "string" ||
+      !question.trim() ||
+      typeof conversationId !== "string" ||
+      !conversationId.trim()
+    ) {
+      return res.status(400).json({
+        message: "Question and conversation ID are required",
+      });
+    }
+
+    const safeHistory = Array.isArray(history)
+      ? history
+          .filter(
+            (message) =>
+              message &&
+              ["user", "assistant"].includes(message.role) &&
+              typeof message.content === "string"
+          )
+          .slice(-10)
+          .map((message) => ({
+            role: message.role,
+            content: message.content,
+          }))
+      : [];
+
+    const response = await groq.chat.completions.create({
+      model: "openai/gpt-oss-20b",
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are ThinkAI, an AI assistant created for this application. Your name is ThinkAI. Never identify yourself as ChatGPT.",
+        },
+        ...safeHistory,
+        {
+          role: "user",
+          content: question.trim(),
+        },
+      ],
+    });
+
+    const answer = response.choices[0].message.content;
+
+    await chat.create({
+      conversationId: conversationId.trim(),
+      question: question.trim(),
+      answer,
+      userId: req.session.userId,
+    });
+
+    return res.json({
+      answer,
+      conversationId: conversationId.trim(),
+    });
+  } catch (error) {
+    console.error("Ask AI error:", error);
+
+    return res.status(500).json({
+      message: "Failed to get AI response",
+    });
+  }
+});
+
+// ==============================
+// FETCH CURRENT USER'S CHATS
+// ==============================
+app.get("/chats", requireAuth, async (req, res) => {
+  try {
+    const savedChats = await chat
+      .find({ userId: req.session.userId })
+      .sort({ createdAt: -1 });
+
+    const conversations = new Map();
+
+    savedChats.forEach((item) => {
+      const id = item.conversationId || `legacy-${item._id}`;
+
+      if (!conversations.has(id)) {
+        conversations.set(id, {
+          _id: id,
+          conversationId: item.conversationId || null,
+          question: item.question,
+          answer: item.answer,
+          createdAt: item.createdAt,
+          messages: [],
+        });
+      }
+
+      const conversation = conversations.get(id);
+
+      conversation.messages.unshift(
+        { role: "user", content: item.question },
+        { role: "ai", content: item.answer }
+      );
+    });
+
+    return res.json(Array.from(conversations.values()));
+  } catch (error) {
+    console.error("Fetch chats error:", error);
+
+    return res.status(500).json({
+      message: "Failed to fetch chats",
+    });
+  }
+});
+
+// Start server
 app.listen(PORT, () => {
-    console.log(`ThinkAI server is listening on port ${PORT}`);
+  console.log(`ThinkAI server is listening on port ${PORT}`);
 });

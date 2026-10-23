@@ -2,7 +2,7 @@
 import { useState } from "react";
 import "./Signup.css";
 
-function Signup() {
+function Signup({ onSignupSuccess, onLoginClick }) {
   const [formData, setFormData] = useState({
     username: "",
     email: "",
@@ -34,16 +34,24 @@ function Signup() {
       });
 
       const data = await response.json();
-      setMessage(data.message || "Something went wrong.");
 
-      if (response.ok) {
-        setFormData({
-          username: "",
-          email: "",
-          password: "",
-        });
+      if (!response.ok) {
+        setMessage(data.message || "Signup failed. Please try again.");
+        return;
       }
+
+      setMessage(data.message || "Account created successfully!");
+
+      setFormData({
+        username: "",
+        email: "",
+        password: "",
+      });
+
+      // Open the Login page after successful signup
+      onSignupSuccess?.();
     } catch (error) {
+      console.error("Signup error:", error);
       setMessage("Unable to connect to server. Please try again.");
     } finally {
       setLoading(false);
@@ -55,6 +63,7 @@ function Signup() {
       <div className="signup-icon">✦</div>
 
       <h1 className="signup-heading">Create Account</h1>
+
       <p className="signup-subtitle">
         Join ThinkAI and start your journey.
       </p>
@@ -112,7 +121,16 @@ function Signup() {
         </button>
       </form>
 
-      {message && <p className="signup-message">{message}</p>}
+      {message && (
+        <p className="signup-message">{message}</p>
+      )}
+
+      <p className="signup-subtitle">
+        Already have an account?{" "}
+        <button type="button" onClick={onLoginClick}>
+          Login
+        </button>
+      </p>
     </div>
   );
 }
