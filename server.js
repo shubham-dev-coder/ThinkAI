@@ -4,9 +4,6 @@ dns.setServers(["8.8.8.8"]);
 
 require("dotenv").config();
 
-const chat = require("./models/chat");
-const User = require("./models/User");
-
 const mongoose = require("mongoose");
 const express = require("express");
 const cors = require("cors");
@@ -15,10 +12,12 @@ const MongoStore = require("connect-mongo").default;
 const Groq = require("groq-sdk");
 const bcrypt = require("bcrypt");
 
+const chat = require("./models/chat");
+const User = require("./models/User");
+
 const app = express();
 const PORT = 5000;
 
-// Frontend origin; change this if Vite uses another port.
 const FRONTEND_ORIGIN =
   process.env.FRONTEND_ORIGIN || "http://localhost:5173";
 
@@ -36,7 +35,9 @@ app.use(express.json());
 mongoose
   .connect(process.env.MONGODB_URI)
   .then(() => console.log("MongoDB Connected"))
-  .catch((err) => console.error("MongoDB connection error:", err));
+  .catch((error) =>
+    console.error("MongoDB connection error:", error)
+  );
 
 // Groq client
 const groq = new Groq({
@@ -68,7 +69,7 @@ app.use(
   })
 );
 
-// Middleware to protect private routes
+// Protect private routes
 function requireAuth(req, res, next) {
   if (!req.session || !req.session.userId) {
     return res.status(401).json({
@@ -175,10 +176,9 @@ app.post("/login", async (req, res) => {
       });
     }
 
-    // Prevent session fixation by creating a fresh session.
-    req.session.regenerate((err) => {
-      if (err) {
-        console.error("Session regeneration error:", err);
+    req.session.regenerate((error) => {
+      if (error) {
+        console.error("Session regeneration error:", error);
         return res.status(500).json({
           message: "Unable to create login session",
         });
@@ -224,6 +224,7 @@ app.get("/me", requireAuth, async (req, res) => {
 
     if (!user) {
       return req.session.destroy(() => {
+        res.clearCookie("thinkai.sid");
         res.status(401).json({
           message: "Please log in again",
         });
@@ -239,6 +240,7 @@ app.get("/me", requireAuth, async (req, res) => {
     });
   } catch (error) {
     console.error("Session check error:", error);
+
     return res.status(500).json({
       message: "Unable to check login session",
     });
@@ -249,9 +251,10 @@ app.get("/me", requireAuth, async (req, res) => {
 // LOGOUT
 // ==============================
 app.post("/logout", requireAuth, (req, res) => {
-  req.session.destroy((err) => {
-    if (err) {
-      console.error("Logout error:", err);
+  req.session.destroy((error) => {
+    if (error) {
+      console.error("Logout error:", error);
+
       return res.status(500).json({
         message: "Logout failed",
       });
@@ -270,7 +273,7 @@ app.post("/logout", requireAuth, (req, res) => {
 });
 
 // ==============================
-// ASK AI - LOGIN REQUIRED
+// ASK AI
 // ==============================
 app.post("/ask-ai", requireAuth, async (req, res) => {
   try {
@@ -379,6 +382,71 @@ app.get("/chats", requireAuth, async (req, res) => {
 
     return res.status(500).json({
       message: "Failed to fetch chats",
+    });
+  }
+});
+
+// ==============================
+// DELETE A CONVERSATION
+// ==============================
+app.delete("/chats/:id", requireAuth, async (req, res) => {
+  try {
+    const requestedId = req.params.id;
+    const userId = req.session.userId;
+
+    // Older chats without a conversationId use the legacy- prefix.
+    if (requestedId.startsWith("legacy-")) {
+      const legacyId = requestedId.slice("legacy-".length);
+
+      if (!mongoose.Types.ObjectId.isValid(legacyId)) {
+        return res.status(400).json({
+          message: "Invalid chat ID",
+        });
+      }
+
+      const deletedChat = await chat.findOneAndDelete({
+        _id: legacyId,
+        userId,
+        $or: [
+          { conversationId: null },
+          { conversationId: { $exists: false } },
+          { conversationId: "" },
+        ],
+      });
+
+      if (!deletedChat) {
+        return res.status(404).json({
+          message: "Chat not found",
+        });
+      }
+
+      return res.json({
+        message: "Conversation deleted successfully",
+      });
+    }
+
+    // Delete every message belonging to this conversation
+    // and the currently logged-in user.
+    const result = await chat.deleteMany({
+      conversationId: requestedId,
+      userId,
+    });
+
+    if (result.deletedCount === 0) {
+      return res.status(404).json({
+        message: "Chat not found",
+      });
+    }
+
+    return res.json({
+      message: "Conversation deleted successfully",
+      deletedCount: result.deletedCount,
+    });
+  } catch (error) {
+    console.error("Delete chat error:", error);
+
+    return res.status(500).json({
+      message: "Failed to delete conversation",
     });
   }
 });

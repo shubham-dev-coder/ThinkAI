@@ -11,6 +11,7 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [recentChats, setRecentChats] = useState([]);
   const [selectedChatId, setSelectedChatId] = useState(null);
+  const [deletingChatId, setDeletingChatId] = useState(null);
 
   const [page, setPage] = useState("login");
   const [currentUser, setCurrentUser] = useState(null);
@@ -24,15 +25,12 @@ function App() {
     });
   }, [messages, loading]);
 
-  // Load chats belonging to the logged-in user
+  // Load only the logged-in user's conversations
   const fetchChats = async () => {
     try {
-      const response = await fetch(
-        "http://localhost:5000/chats",
-        {
-          credentials: "include",
-        }
-      );
+      const response = await fetch("http://localhost:5000/chats", {
+        credentials: "include",
+      });
 
       if (!response.ok) {
         if (response.status === 401) {
@@ -50,16 +48,13 @@ function App() {
     }
   };
 
-  // Check whether the user still has a valid session
+  // Restore the user's session after refresh
   useEffect(() => {
     const checkSession = async () => {
       try {
-        const response = await fetch(
-          "http://localhost:5000/me",
-          {
-            credentials: "include",
-          }
-        );
+        const response = await fetch("http://localhost:5000/me", {
+          credentials: "include",
+        });
 
         if (!response.ok) {
           setCurrentUser(null);
@@ -87,6 +82,7 @@ function App() {
     checkSession();
   }, []);
 
+  // Start a new conversation
   const startNewChat = () => {
     setMessages([]);
     setQuestion("");
@@ -95,7 +91,9 @@ function App() {
 
   // Open an existing conversation
   const openRecentChat = (chat) => {
-    setSelectedChatId(chat.conversationId || chat._id);
+    const chatId = chat.conversationId || chat._id;
+
+    setSelectedChatId(chatId);
 
     if (Array.isArray(chat.messages) && chat.messages.length > 0) {
       setMessages(chat.messages);
@@ -109,6 +107,66 @@ function App() {
     setQuestion("");
   };
 
+  // Delete an entire conversation
+  const deleteChat = async (event, chatId) => {
+    event.stopPropagation();
+
+    if (deletingChatId) return;
+
+    const confirmed = window.confirm(
+      "Are you sure you want to delete this conversation? This action cannot be undone."
+    );
+
+    if (!confirmed) return;
+
+    setDeletingChatId(chatId);
+
+    try {
+      const response = await fetch(
+        `http://localhost:5000/chats/${encodeURIComponent(chatId)}`,
+        {
+          method: "DELETE",
+          credentials: "include",
+        }
+      );
+
+      const data = await response.json();
+
+      if (response.status === 401) {
+        setCurrentUser(null);
+        setRecentChats([]);
+        setMessages([]);
+        setSelectedChatId(null);
+        setPage("login");
+
+        throw new Error("Your session expired. Please log in again.");
+      }
+
+      if (!response.ok) {
+        throw new Error(data.message || "Failed to delete conversation");
+      }
+
+      // Remove the deleted conversation from the sidebar
+      setRecentChats((previousChats) =>
+        previousChats.filter(
+          (chat) => (chat.conversationId || chat._id) !== chatId
+        )
+      );
+
+      // Clear the chat window if this conversation was open
+      if (selectedChatId === chatId) {
+        setMessages([]);
+        setQuestion("");
+        setSelectedChatId(null);
+      }
+    } catch (error) {
+      console.error("Delete chat error:", error);
+      window.alert(error.message || "Unable to delete chat. Please try again.");
+    } finally {
+      setDeletingChatId(null);
+    }
+  };
+
   // Send a question to ThinkAI
   const askAI = async () => {
     if (!question.trim() || loading) return;
@@ -119,8 +177,7 @@ function App() {
     }
 
     const currentQuestion = question.trim();
-    const conversationId =
-      selectedChatId || crypto.randomUUID();
+    const conversationId = selectedChatId || crypto.randomUUID();
 
     const previousMessages = messages.map((message) => ({
       role: message.role === "ai" ? "assistant" : "user",
@@ -137,21 +194,18 @@ function App() {
     setLoading(true);
 
     try {
-      const response = await fetch(
-        "http://localhost:5000/ask-ai",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          credentials: "include",
-          body: JSON.stringify({
-            question: currentQuestion,
-            conversationId,
-            history: previousMessages,
-          }),
-        }
-      );
+      const response = await fetch("http://localhost:5000/ask-ai", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "include",
+        body: JSON.stringify({
+          question: currentQuestion,
+          conversationId,
+          history: previousMessages,
+        }),
+      });
 
       const data = await response.json();
 
@@ -162,9 +216,7 @@ function App() {
       }
 
       if (!response.ok) {
-        throw new Error(
-          data.message || "Failed to get AI response"
-        );
+        throw new Error(data.message || "Failed to get AI response");
       }
 
       setMessages((previous) => [
@@ -191,13 +243,10 @@ function App() {
   // Log out and destroy the server-side session
   const handleLogout = async () => {
     try {
-      const response = await fetch(
-        "http://localhost:5000/logout",
-        {
-          method: "POST",
-          credentials: "include",
-        }
-      );
+      const response = await fetch("http://localhost:5000/logout", {
+        method: "POST",
+        credentials: "include",
+      });
 
       if (!response.ok) {
         throw new Error("Logout failed");
@@ -211,7 +260,7 @@ function App() {
       setPage("login");
     } catch (error) {
       console.error("Logout error:", error);
-      alert("Unable to log out. Please try again.");
+      window.alert("Unable to log out. Please try again.");
     }
   };
 
@@ -272,17 +321,11 @@ function App() {
           </p>
         )}
 
-        <button
-          className="new-chat-button"
-          onClick={startNewChat}
-        >
+        <button className="new-chat-button" onClick={startNewChat}>
           + New Chat
         </button>
 
-        <button
-          className="new-chat-button"
-          onClick={handleLogout}
-        >
+        <button className="new-chat-button" onClick={handleLogout}>
           Logout
         </button>
 
@@ -305,8 +348,44 @@ function App() {
                   }
                   title={chat.question}
                   onClick={() => openRecentChat(chat)}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: "8px",
+                  }}
                 >
-                  {chat.question}
+                  <span
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {chat.question}
+                  </span>
+
+                  <button
+                    type="button"
+                    title="Delete conversation"
+                    aria-label={`Delete conversation: ${chat.question}`}
+                    disabled={deletingChatId !== null}
+                    onClick={(event) => deleteChat(event, chatId)}
+                    style={{
+                      flexShrink: 0,
+                      border: "none",
+                      borderRadius: "6px",
+                      padding: "5px",
+                      background: "transparent",
+                      cursor:
+                        deletingChatId === chatId ? "wait" : "pointer",
+                      opacity: deletingChatId === chatId ? 0.6 : 1,
+                    }}
+                  >
+                    {deletingChatId === chatId ? "..." : "🗑️"}
+                  </button>
                 </div>
               );
             })
@@ -325,27 +404,21 @@ function App() {
             <div
               key={index}
               className={
-                message.role === "user"
-                  ? "user-message"
-                  : "ai-message"
+                message.role === "user" ? "user-message" : "ai-message"
               }
             >
               <div className="message-label">
                 {message.role === "user" ? "You" : "ThinkAI"}
               </div>
 
-              <div className="message-content">
-                {message.content}
-              </div>
+              <div className="message-content">{message.content}</div>
             </div>
           ))}
 
           {loading && (
             <div className="ai-message">
               <div className="message-label">ThinkAI</div>
-              <div className="message-content">
-                ThinkAI is thinking...
-              </div>
+              <div className="message-content">ThinkAI is thinking...</div>
             </div>
           )}
 
@@ -357,9 +430,9 @@ function App() {
             type="text"
             placeholder="Ask your question..."
             value={question}
-            onChange={(e) => setQuestion(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") askAI();
+            onChange={(event) => setQuestion(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") askAI();
             }}
           />
 
