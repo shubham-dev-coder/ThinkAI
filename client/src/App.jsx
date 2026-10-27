@@ -28,7 +28,7 @@ function App() {
   // Load only the logged-in user's conversations
   const fetchChats = async () => {
     try {
-      const response = await fetch("http://localhost:5000/chats", {
+      const response = await fetch("https://thinkai-backend-jewk.onrender.com/chats", {
         credentials: "include",
       });
 
@@ -52,7 +52,7 @@ function App() {
   useEffect(() => {
     const checkSession = async () => {
       try {
-        const response = await fetch("http://localhost:5000/me", {
+        const response = await fetch("https://thinkai-backend-jewk.onrender.com/me", {
           credentials: "include",
         });
 
@@ -123,7 +123,7 @@ function App() {
 
     try {
       const response = await fetch(
-        `http://localhost:5000/chats/${encodeURIComponent(chatId)}`,
+        `https://thinkai-backend-jewk.onrender.com/chats/${encodeURIComponent(chatId)}`,
         {
           method: "DELETE",
           credentials: "include",
@@ -194,7 +194,7 @@ function App() {
     setLoading(true);
 
     try {
-      const response = await fetch("http://localhost:5000/ask-ai", {
+      const response = await fetch("https://thinkai-backend-jewk.onrender.com/ask-ai", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -243,7 +243,7 @@ function App() {
   // Log out and destroy the server-side session
   const handleLogout = async () => {
     try {
-      const response = await fetch("http://localhost:5000/logout", {
+      const response = await fetch("https://thinkai-backend-jewk.onrender.com/logout", {
         method: "POST",
         credentials: "include",
       });
