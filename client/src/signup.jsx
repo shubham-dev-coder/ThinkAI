@@ -25,7 +25,7 @@ function Signup({ onSignupSuccess, onLoginClick }) {
     setLoading(true);
 
     try {
-      const response = await fetch("http://localhost:5000/signup", {
+      const response = await fetch("https://thinkai-backend-jewk.onrender.com/login", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
