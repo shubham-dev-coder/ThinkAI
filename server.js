@@ -49,6 +49,8 @@ if (!process.env.SESSION_SECRET) {
   throw new Error("SESSION_SECRET is missing from your .env file");
 }
 
+app.set("trust proxy", 1);
+
 app.use(
   session({
     name: "thinkai.sid",
