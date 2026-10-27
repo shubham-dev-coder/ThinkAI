@@ -1,6 +1,6 @@
 
 import { useState } from "react";
-import "./Signup.css";
+import "./signup.css";
 
 function Login({ onLoginSuccess, onSignupClick }) {
   const [formData, setFormData] = useState({
